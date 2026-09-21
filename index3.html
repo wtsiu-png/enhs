@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模擬「健康申報」練習 (16:9 朗讀版)</title>
+    <style>
+        /* 1. 護眼淡色背景與全局居中排版 */
+        body {
+            background-color: #E8ECE9; /* 淡綠灰色護眼背景 */
+            color: #2C3E50;
+            font-family: 'Microsoft JhengHei', "微軟正黑體", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden; /* 防止螢幕滾動 */
+            user-select: none;
+        }
+
+        /* 2. 16:9 橫向比例主要遊戲容器 */
+        .game-card {
+            background-color: #FFFFFF;
+            border: 8px solid #A3E4D7;
+            border-radius: 30px;
+            
+            /* 強制設定 16:9 比例與最大化顯示 */
+            aspect-ratio: 16 / 9;
+            width: 95vw;
+            max-height: 95vh;
+            
+            padding: 20px 40px;
+            box-sizing: border-box;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+            
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            align-items: center;
+            text-align: center;
+            position: relative;
+        }
+
+        /* 3. 頂部列（標題與語音朗讀按鈕） */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .big-title {
+            font-size: 45px;
+            font-weight: bold;
+            color: #1E8449;
+        }
+
+        /* 獨立朗讀按鈕 (60px 字體/大目標) */
+        .btn-speak {
+            font-size: 40px;
+            font-weight: bold;
+            background-color: #F9E79F;
+            color: #7D6608;
+            border: 4px solid #F4D03F;
+            border-radius: 20px;
+            padding: 10px 25px;
+            cursor: pointer;
+            box-shadow: 0 6px 10px rgba(0,0,0,0.1);
+        }
+
+        .btn-speak:active {
+            transform: scale(0.95);
+        }
+
+        /* 4. 中間情境與題目區 (特大字體 60px) */
+        .content-area {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            width: 100%;
+        }
+
+        .card-visual {
+            font-size: 130px;
+            background-color: #F4F6F6;
+            border-radius: 25px;
+            padding: 15px 30px;
+            border: 5px dashed #5DADE2;
+            flex-shrink: 0;
+        }
+
+        .question-text {
+            font-size: 60px; /* 特大 60px 字體 */
+            font-weight: bold;
+            color: #1B4F72;
+            line-height: 1.3;
+            text-align: left;
+        }
+
+        /* 5. 選項按鈕區 (大間距防誤觸) */
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 60px; /* 加大間距 60px，防誤觸 */
+            width: 100%;
+        }
+
+        .btn-option {
+            font-size: 55px;
+            font-weight: bold;
+            padding: 20px 45px;
+            border-radius: 30px;
+            border: 6px solid transparent;
+            cursor: pointer;
+            min-width: 320px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.12);
+        }
+
+        .btn-sick {
+            background-color: #FADBD8;
+            color: #78281F;
+            border-color: #E6B0AA;
+        }
+
+        .btn-healthy {
+            background-color: #D4EFDF;
+            color: #145A32;
+            border-color: #A9DFBF;
+        }
+
+        .btn-option:active {
+            transform: scale(0.95);
+        }
+
+        /* 6. 回饋提示區域 */
+        .feedback-box {
+            font-size: 50px;
+            font-weight: bold;
+            padding: 15px 30px;
+            border-radius: 20px;
+            display: none;
+            width: 90%;
+        }
+
+        .feedback-gentle {
+            background-color: #FCF3CF;
+            color: #7D6608;
+            border: 4px solid #F7DC6F;
+        }
+
+        .feedback-correct {
+            background-color: #D4EFDF;
+            color: #196F3D;
+            border: 4px solid #82E0AA;
+        }
+
+        .btn-next {
+            font-size: 45px;
+            font-weight: bold;
+            background-color: #AED6F1;
+            color: #1B4F72;
+            border: 4px solid #5DADE2;
+            border-radius: 20px;
+            padding: 10px 35px;
+            cursor: pointer;
+            display: none;
+        }
+
+        /* 7. 全螢幕煙火 Canvas */
+        #fireworksCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="fireworksCanvas"></canvas>
+
+    <!-- 16:9 橫向卡片容器 -->
+    <div class="game-card">
+        
+        <!-- 頂部資訊列 -->
+        <div class="top-bar">
+            <div class="big-title">📋 健康申報練習</div>
+            <button class="btn-speak" onclick="speakCurrentQuestion()">🔊 聽題目</button>
+        </div>
+
+        <!-- 中間題目區 (圖片 + 60px 文字) -->
+        <div class="content-area">
+            <div id="cardVisual" class="card-visual">🤒</div>
+            <div id="questionText" class="question-text">發燒熱熱的，要怎麼申報？</div>
+        </div>
+
+        <!-- 按鈕區 (大間距拉開) -->
+        <div class="button-group">
+            <button class="btn-option btn-sick" onclick="checkAnswer(true)">
+                🤒 我不舒服
+            </button>
+            <button class="btn-option btn-healthy" onclick="checkAnswer(false)">
+                😊 我很健康
+            </button>
+        </div>
+
+        <!-- 回饋訊息框 -->
+        <div id="feedbackBox" class="feedback-box"></div>
+
+        <!-- 下一題按鈕 -->
+        <button id="btnNext" class="btn-next" onclick="nextQuestion()">➡️ 下一題</button>
+    </div>
+
+    <script>
+        /* ================= 1. 題目資料庫 ================= */
+        const questions = [
+            {
+                visual: "🤒",
+                text: "感覺頭昏昏的、量體溫發燒了，要怎麼申報？",
+                isSick: true,
+                gentleHint: "身體發燒熱熱的，要選我不舒服告訴老師喔！"
+            },
+            {
+                visual: "😊",
+                text: "精神很好、肚子不痛也沒發燒，要怎麼申報？",
+                isSick: false,
+                gentleHint: "身體很舒服，要選我很健康喔！"
+            },
+            {
+                visual: "🤢",
+                text: "肚子痛痛的、想吐吐，要怎麼申報？",
+                isSick: true,
+                gentleHint: "肚子痛痛的，要選我不舒服尋求幫忙喔！"
+            },
+            {
+                visual: "😷",
+                text: "一直咳嗽、流鼻水，要怎麼申報？",
+                isSick: true,
+                gentleHint: "生病咳嗽時，要選我不舒服告訴大家喔！"
+            }
+        ];
+
+        let currentQuestionIndex = 0;
+
+        /* ================= 2. 語音朗讀功能 (Text-to-Speech) ================= */
+        function speakText(textToSpeak) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // 停止先前的朗讀
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = 'zh-HK'; // 設為粵語/廣東話 (如裝置不支援會自動切換為中文)
+                utterance.rate = 0.85; // 稍慢語速，適合特教學生
+                utterance.pitch = 1.0;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        function speakCurrentQuestion() {
+            const q = questions[currentQuestionIndex];
+            speakText(q.text);
+        }
+
+        /* ================= 3. 音效系統 (Web Audio API) ================= */
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playDingDong() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(783.99, audioCtx.currentTime); // High G
+            gain1.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.start();
+            osc1.stop(audioCtx.currentTime + 0.5);
+
+            setTimeout(() => {
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(1046.50, audioCtx.currentTime); // High C
+                gain2.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.start();
+                osc2.stop(audioCtx.currentTime + 0.8);
+            }, 150);
+        }
+
+        function playGentleSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(329.63, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.6);
+        }
+
+        /* ================= 4. 答題判斷與朗讀回饋 ================= */
+        function checkAnswer(userChoiceIsSick) {
+            const q = questions[currentQuestionIndex];
+            const feedbackBox = document.getElementById('feedbackBox');
+            const btnNext = document.getElementById('btnNext');
+
+            feedbackBox.style.display = 'block';
+
+            if (userChoiceIsSick === q.isSick) {
+                playDingDong();
+                triggerFireworks();
+                feedbackBox.className = 'feedback-box feedback-correct';
+                feedbackBox.innerHTML = '🌟 太棒了！答對了！誠實申報最棒！';
+                speakText("太棒了！答對了！誠實申報最棒！");
+                btnNext.style.display = 'inline-block';
+            } else {
+                playGentleSound();
+                feedbackBox.className = 'feedback-box feedback-gentle';
+                feedbackBox.innerHTML = '💡 ' + q.gentleHint;
+                speakText(q.gentleHint);
+            }
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex = (currentQuestionIndex + 1) % questions.length;
+            const q = questions[currentQuestionIndex];
+
+            document.getElementById('cardVisual').innerText = q.visual;
+            document.getElementById('questionText').innerText = q.text;
+            document.getElementById('feedbackBox').style.display = 'none';
+            document.getElementById('btnNext').style.display = 'none';
+
+            // 自動朗讀新題目
+            speakCurrentQuestion();
+        }
+
+        // 初始化：載入第一題並朗讀
+        window.onload = () => {
+            speakCurrentQuestion();
+        };
+
+        /* ================= 5. Canvas 彩帶煙火動畫 ================= */
+        const canvas = document.getElementById('fireworksCanvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function triggerFireworks() {
+            particles = [];
+            const colors = ['#FF5722', '#4CAF50', '#2196F3', '#FFEB3B', '#9C27B0', '#FF4081'];
+            
+            for (let i = 0; i < 80; i++) {
+                particles.push({
+                    x: canvas.width / 2,
+                    y: canvas.height / 2,
+                    vx: (Math.random() - 0.5) * 16,
+                    vy: (Math.random() - 0.5) * 16 - 3,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    size: Math.random() * 12 + 8,
+                    alpha: 1
+                });
+            }
+            animateFireworks();
+        }
+
+        function animateFireworks() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            let active = false;
+
+            particles.forEach(p => {
+                if (p.alpha > 0) {
+                    active = true;
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.2;
+                    p.alpha -= 0.015;
+
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, p.alpha);
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+            });
+
+            if (active) {
+                requestAnimationFrame(animateFireworks);
+            }
+        }
+    </script>
+</body>
+</html>
