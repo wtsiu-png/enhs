@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>亮燈與發聲的開關 - Tobii 眼動支援版</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'circuit-bg': '#0a0a0c',
+                        'panel-bg': '#141419',
+                        'switch-red': '#ff2a4b',
+                        'switch-red-active': '#d00027',
+                        'wire-off': '#2a2a35',
+                        'wire-on': '#ffee33',
+                        'led-on': '#ff0055',
+                        'buzzer-on': '#00ffcc'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Noto+Sans+TC:wght@700;900&display=swap');
+
+        body {
+            font-family: 'Noto Sans TC', 'Fredoka', sans-serif;
+            background-color: #0a0a0c;
+            color: #ffffff;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            overflow: hidden;
+        }
+
+        /* 超大開關 3D 掌擊效果 */
+        .slap-switch {
+            background: radial-gradient(circle at 35% 35%, #ff5270 0%, #b80024 70%, #7a0016 100%);
+            box-shadow: 
+                0 16px 0 #52000f,
+                0 25px 35px rgba(0, 0, 0, 0.8),
+                inset 0 6px 12px rgba(255, 255, 255, 0.4);
+            transition: transform 0.05s ease, box-shadow 0.05s ease, background 0.05s ease;
+        }
+
+        .slap-switch.pressed {
+            transform: translateY(12px);
+            box-shadow: 
+                0 4px 0 #52000f,
+                0 10px 15px rgba(0, 0, 0, 0.6),
+                inset 0 3px 6px rgba(0, 0, 0, 0.4);
+            background: radial-gradient(circle at 35% 35%, #ff2a4b 0%, #a0001f 70%, #600011 100%);
+        }
+
+        /* 高對比 LED 光暈發光動畫 */
+        .led-bulb {
+            background-color: #22050b;
+            border: 6px solid #44101a;
+            box-shadow: inset 0 4px 8px rgba(0,0,0,0.8);
+            transition: all 0.08s ease;
+        }
+
+        .led-bulb.active {
+            background-color: #ff0055;
+            border-color: #ffffff;
+            box-shadow: 
+                0 0 30px #ff0055,
+                0 0 70px #ff0055,
+                0 0 120px #ff0055,
+                inset 0 0 15px #ffffff;
+        }
+
+        /* 蜂鳴器震動與光條效果 */
+        .buzzer-box {
+            background-color: #121820;
+            border: 4px solid #2a3545;
+            transition: all 0.08s ease;
+        }
+
+        .buzzer-box.active {
+            border-color: #00ffcc;
+            box-shadow: 
+                0 0 30px rgba(0, 255, 204, 0.6),
+                0 0 60px rgba(0, 255, 204, 0.3);
+            animation: buzzer-vibrate 0.08s infinite alternate;
+        }
+
+        @keyframes buzzer-vibrate {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            100% { transform: translate(-1px, -1px) rotate(1deg); }
+        }
+
+        /* 流動電路導線動畫 */
+        .wire-flow {
+            stroke-dasharray: 12, 12;
+            animation: flow 0.5s linear infinite;
+        }
+
+        @keyframes flow {
+            to {
+                stroke-dashoffset: -24;
+            }
+        }
+
+        /* 全螢幕視障閃爍感官輔助 */
+        .screen-flash-overlay {
+            pointer-events: none;
+            transition: opacity 0.05s ease;
+        }
+
+        /* ================= GAZE / DWELL UI ================= */
+        /* gaze cursor */
+        #gaze-cursor {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 28px;
+            height: 28px;
+            margin-left: -14px;
+            margin-top: -14px;
+            pointer-events: none;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.12);
+            border: 2px solid rgba(255,255,255,0.3);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 12px rgba(255,255,255,0.05) inset;
+            z-index: 9999;
+            transform: translate3d(0,0,0);
+            display: none;
+        }
+
+        /* Gaze-interactive element: very large (approx 40% of viewport via vmin), with spacing */
+        .gaze-interactive {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40vmin;
+            height: 40vmin;
+            min-width: 160px;
+            min-height: 160px;
+            margin: 2vmin;
+            border-radius: 18px;
+            transition: transform 180ms ease, box-shadow 180ms ease;
+            touch-action: none;
+            user-select: none;
+            z-index: 60;
+        }
+
+        /* group spacing helper */
+        .gaze-btn-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2vmin;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Dwell progress bar */
+        .dwell-progress {
+            position: absolute;
+            left: 8px;
+            right: 8px;
+            bottom: 8px;
+            height: 7px;
+            width: 0%;
+            background: linear-gradient(90deg, rgba(255,255,0,0.95), rgba(255,170,0,0.95));
+            border-radius: 6px;
+            pointer-events: none;
+            transition: width 0s linear;
+        }
+
+        /* highlight style when gaze over element */
+        .gaze-highlight {
+            box-shadow: 0 16px 40px rgba(255,200,60,0.12), 0 6px 18px rgba(0,0,0,0.6);
+            transform: scale(1.02);
+            filter: saturate(1.1) brightness(1.05);
+        }
+
+        /* dwell complete flash */
+        .dwell-complete {
+            animation: dwell-flash 220ms ease;
+        }
+
+        @keyframes dwell-flash {
+            0% { transform: scale(1.03); opacity: 1; }
+            100% { transform: scale(1.0); opacity: 1; }
+        }
+
+        /* ensure large interactive elements in settings/modal look readable */
+        #statsModal .gaze-interactive { width: auto; height: auto; padding: 0.8rem 1rem; }
+
+        /* ensure small screens layout fallback */
+        @media (max-width: 640px) {
+            .gaze-interactive { width: 46vmin; height: 46vmin; margin: 1.5vmin; }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between p-2 sm:p-4 select-none">
+
+    <!-- gaze cursor -->
+    <div id="gaze-cursor" aria-hidden="true"></div>
+
+    <!-- 全螢幕閃爍層 (對應強烈視覺感官刺激) -->
+    <div id="flashOverlay" class="screen-flash-overlay fixed inset-0 bg-white opacity-0 z-40"></div>
+
+    <!-- 頂部導覽與特教控制台 (Teacher Dashboard) -->
+    <header class="bg-panel-bg rounded-2xl border-2 border-gray-800 p-3 z-50 flex flex-wrap justify-between items-center gap-2 shadow-2xl">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-yellow-500 text-black font-black flex items-center justify-center text-xl shadow-lg">
+                ⚡
+            </div>
+            <div>
+                <h1 class="text-xl sm:text-2xl font-black text-yellow-400 tracking-wide">亮燈與發聲的開關</h1>
+                <p class="text-xs text-gray-400 hidden sm:block">多感官低電壓電路體驗 (VI &amp; MID/SID 適應版)</p>
+            </div>
+        </div>
+
+        <!-- 教師設定面板按鈕群（部分按鈕也支援 gaze） -->
+        <div class="flex items-center gap-2 flex-wrap">
+            <!-- 模式選擇 (轉為大型 gaze 按鈕方便眼動) -->
+            <div class="gaze-btn-row" style="align-items:center;">
+                <button id="modeBoth" onclick="setSensoryMode('both')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-yellow-500 text-black shadow gaze-interactive" data-gaze>
+                    <div>亮燈+發聲</div>
+                    <div class="dwell-progress"></div>
+                </button>
+                <button id="modeLight" onclick="setSensoryMode('light')" class="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive" data-gaze>
+                    <div>單純亮燈</div>
+                    <div class="dwell-progress"></div>
+                </button>
+                <button id="modeSound" onclick="setSensoryMode('sound')" class="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive" data-gaze>
+                    <div>單純發聲</div>
+                    <div class="dwell-progress"></div>
+                </button>
+            </div>
+
+            <!-- 開關觸發機制 (轉為大型 gaze 按鈕) -->
+            <div class="gaze-btn-row ml-2">
+                <button id="triggerHold" onclick="setTriggerMode('hold')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-blue-600 text-white shadow gaze-interactive" data-gaze>
+                    <div>按住通電</div>
+                    <div class="dwell-progress"></div>
+                </button>
+                <button id="triggerToggle" onclick="setTriggerMode('toggle')" class="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive" data-gaze>
+                    <div>拍一下切換</div>
+                    <div class="dwell-progress"></div>
+                </button>
+            </div>
+
+            <!-- 音色選擇 (保留 select，但也提供一個 gaze-friendly備案按鈕切換) -->
+            <select id="soundTypeSelect" onchange="changeSoundType(this.value)" class="bg-gray-800 border border-gray-600 text-yellow-300 text-xs rounded-xl px-2 py-2 font-bold focus:outline-none">
+                <option value="buzzer">🔊 經典蜂鳴器 (800Hz)</option>
+                <option value="soft">🎵 軟和音符 (溫和)</option>
+                <option value="bell">🔔 清脆警示鈴</option>
+            </select>
+
+            <!-- IEP 數據紀錄開啟 (也可用視線懸停開啟) -->
+            <button id="statsBtn" onclick="toggleStatsModal()" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-200 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1 gaze-interactive" data-gaze>
+                📊 <span>IEP 紀錄</span>
+                <div class="dwell-progress"></div>
+            </button>
+        </div>
+    </header>
+
+    <!-- 中間：擬真低電壓電路板 (Circuit Board Stage) -->
+    <main class="flex-1 my-2 relative bg-panel-bg/60 rounded-3xl border-2 border-gray-800 p-4 flex flex-col justify-between items-center overflow-hidden">
+        
+        <!-- 背景高對比電路網絡 SVG -->
+        <svg class="absolute inset-0 w-full h-full z-0 pointer-events-none" id="circuitSvg">
+            <!-- 電線 L1: 電池 (+) -> 開關 -->
+            <path id="wire1" d="M 120,120 L 120,280 L 250,280" stroke="#2a2a35" stroke-width="10" fill="none" stroke-linecap="round"/>
+            <path id="wire1Flow" d="M 120,120 L 120,280 L 250,280" stroke="#ffee33" stroke-width="6" fill="none" stroke-linecap="round" class="wire-flow hidden"/>
+
+            <!-- 電線 L2: 開關 -> LED / 蜂鳴器 -->
+            <path id="wire2" d="M 350,280 L 500,280 L 500,120" stroke="#2a2a35" stroke-width="10" fill="none" stroke-linecap="round"/>
+            <path id="wire2Flow" d="M 350,280 L 500,280 L 500,120" stroke="#ffee33" stroke-width="6" fill="none" stroke-linecap="round" class="wire-flow hidden"/>
+
+            <!-- 電線 L3: LED / 蜂鳴器 -> 電池 (-) -->
+            <path id="wire3" d="M 500,80 L 500,40 L 120,40 L 120,80" stroke="#2a2a35" stroke-width="10" fill="none" stroke-linecap="round"/>
+            <path id="wire3Flow" d="M 500,80 L 500,40 L 120,40 L 120,80" stroke="#ffee33" stroke-width="6" fill="none" stroke-linecap="round" class="wire-flow hidden"/>
+        </svg>
+
+        <!-- 上方：低電壓元件展示區域 (Battery, LED, Buzzer) -->
+        <div class="w-full max-w-5xl z-10 grid grid-cols-3 gap-3 sm:gap-6 my-auto">
+            
+            <!-- 1. 低電壓直流電源 (3V DC Battery) -->
+            <div class="bg-black/70 rounded-2xl border-2 border-gray-700 p-3 sm:p-5 flex flex-col items-center justify-center text-center shadow-xl">
+                <span class="text-xs font-bold text-gray-400 mb-1">電源 (DC 3V)</span>
+                <div class="text-4xl sm:text-6xl my-1">🔋</div>
+                <div class="text-xs sm:text-sm font-black text-yellow-400 bg-yellow-400/10 px-3 py-1 rounded-full border border-yellow-400/30">
+                    安全低電壓
+                </div>
+            </div>
+
+            <!-- 2. 高亮 LED 燈泡組件 -->
+            <div id="ledContainer" class="bg-black/70 rounded-2xl border-2 border-gray-700 p-3 sm:p-5 flex flex-col items-center justify-center text-center shadow-xl relative overflow-hidden">
+                <span class="text-xs font-bold text-gray-400 mb-1">發光的 LED 燈</span>
+                <div id="ledBulb" class="led-bulb w-16 h-16 sm:w-24 sm:h-24 rounded-full my-2 flex items-center justify-center text-2xl font-black">
+                    <span id="ledStatusText" class="opacity-30">OFF</span>
+                </div>
+                <div class="text-xs sm:text-sm font-bold text-red-400">
+                    <span id="ledStateLabel">未亮起</span>
+                </div>
+            </div>
+
+            <!-- 3. 發聲蜂鳴器組件 -->
+            <div id="buzzerContainer" class="bg-black/70 rounded-2xl border-2 border-gray-700 p-3 sm:p-5 flex flex-col items-center justify-center text-center shadow-xl">
+                <span class="text-xs font-bold text-gray-400 mb-1">發聲蜂鳴器</span>
+                <div id="buzzerBox" class="buzzer-box w-16 h-16 sm:w-24 sm:h-24 rounded-2xl my-2 flex items-center justify-center text-3xl sm:text-5xl text-gray-600">
+                    📢
+                </div>
+                <div class="text-xs sm:text-sm font-bold text-teal-400">
+                    <span id="buzzerStateLabel">靜音中</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 電路接通提示文字與即時狀態 -->
+        <div class="z-10 bg-black/80 backdrop-blur px-6 py-2 rounded-full border border-gray-700 text-center">
+            <span class="text-sm sm:text-lg font-black tracking-wider" id="circuitStatusText">
+                🔴 電路斷開 (Circuit Open) - 請拍下大開關
+            </span>
+        </div>
+    </main>
+
+    <!-- 下方：超大面積拍掣/輔具開關 (Giant Assistive Switch) -->
+    <footer class="h-2/5 min-h-[220px] max-h-[320px] w-full z-20 flex justify-center items-center p-2">
+        <button id="slapSwitchBtn" 
+                class="slap-switch w-full max-w-4xl h-full rounded-3xl sm:rounded-[40px] border-4 sm:border-8 border-white flex flex-col items-center justify-center cursor-pointer outline-none active:outline-none focus:outline-none relative overflow-hidden group gaze-interactive" data-gaze>
+            
+            <!-- 按鈕視覺高光區 -->
+            <div class="absolute top-0 left-0 right-0 h-1/3 bg-white/20 rounded-t-3xl pointer-events-none"></div>
+
+            <!-- 手掌圖示與主要標題區域 -->
+            <div class="flex items-center justify-center gap-3 sm:gap-6 pointer-events-none my-1">
+                <svg class="w-14 h-14 sm:w-24 sm:h-24 drop-shadow-[0_4px_10px_rgba(0,0,0,0.8)] transform transition-transform group-active:scale-125" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M 52,152 
+                             C 44,130 32,95 38,70 
+                             C 41,52 53,52 57,68 
+                             C 60,82 63,98 64,103 
+                             C 64,103 64,70 67,40 
+                             C 69,20 83,20 86,40 
+                             C 88,60 89,92 89,97 
+                             C 89,97 91,50 93,25 
+                             C 95,8 109,8 111,25 
+                             C 113,48 113,92 113,97 
+                             C 113,97 116,58 119,38 
+                             C 121,22 135,22 137,38 
+                             C 139,60 139,95 135,120 
+                             C 142,118 165,102 178,108 
+                             C 188,112 185,128 171,138 
+                             C 156,150 145,162 135,175 
+                             C 112,192 70,188 52,152 Z" 
+                          fill="#fba872" 
+                          stroke="#2c170b" 
+                          stroke-width="8" 
+                          stroke-linecap="round" 
+                          stroke-linejoin="round"/>
+                    <path d="M 132,122 C 108,123 95,148 96,158" 
+                          stroke="#2c170b" 
+                          stroke-width="8" 
+                          stroke-linecap="round" 
+                          fill="none"/>
+                </svg>
+
+                <span class="text-3xl sm:text-6xl font-black text-white tracking-widest drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)]">
+                    拍 下 開 關
+                </span>
+            </div>
+
+            <span class="text-sm sm:text-xl font-bold text-yellow-300 mt-2 bg-black/40 px-4 py-1.5 rounded-full border border-yellow-300/30 pointer-events-none">
+                用手掌拍擊 / 觸控螢幕 / 按 [空白鍵 Space]
+            </span>
+            <div class="dwell-progress" style="bottom:14px;"></div>
+        </button>
+    </footer>
+
+    <!-- IEP 數據紀錄彈出視窗 -->
+    <div id="statsModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-panel-bg border-2 border-yellow-500/50 rounded-3xl p-6 max-w-md w-full shadow-2xl">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-3">
+                <h2 class="text-xl font-black text-yellow-400 flex items-center gap-2">
+                    📊 個別化教育計畫 (IEP) 學習紀錄
+                </h2>
+                <button id="statsCloseBtn" onclick="toggleStatsModal()" class="text-gray-400 hover:text-white text-2xl font-bold gaze-interactive" data-gaze>
+                    &times;
+                    <div class="dwell-progress"></div>
+                </button>
+            </div>
+
+            <div class="space-y-4 my-4">
+                <div class="bg-black/50 p-4 rounded-2xl border border-gray-800 flex justify-between items-center">
+                    <span class="text-gray-300 font-bold">累積拍下開關次數：</span>
+                    <span id="statCount" class="text-3xl font-black text-yellow-400">0 次</span>
+                </div>
+                <div class="bg-black/50 p-4 rounded-2xl border border-gray-800 flex justify-between items-center">
+                    <span class="text-gray-300 font-bold">累積接通電路時間：</span>
+                    <span id="statTime" class="text-3xl font-black text-green-400">0.0 秒</span>
+                </div>
+                <div class="bg-black/50 p-4 rounded-2xl border border-gray-800 flex justify-between items-center">
+                    <span class="text-gray-300 font-bold">當前觸發機制：</span>
+                    <span id="statTriggerMode" class="text-lg font-bold text-blue-400">按住通電</span>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button onclick="resetStats()" class="flex-1 bg-red-900/60 hover:bg-red-800 border border-red-500 text-red-200 py-3 rounded-xl font-bold transition-all gaze-interactive" data-gaze>
+                    重設數據
+                    <div class="dwell-progress"></div>
+                </button>
+                <button onclick="toggleStatsModal()" class="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-black transition-all gaze-interactive" data-gaze>
+                    返回體驗
+                    <div class="dwell-progress"></div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ==================== 全局狀態管理 ==================== */
+        let isCircuitActive = false;
+        let sensoryMode = 'both';  // 'both' | 'light' | 'sound'
+        let triggerMode = 'hold';  // 'hold' | 'toggle'
+        let soundType = 'buzzer';   // 'buzzer' | 'soft' | 'bell'
+
+        // IEP 統計數據
+        let pressCount = 0;
+        let totalActiveMs = 0;
+        let activeStartTime = null;
+
+        // Web Audio API 音效引擎
+        let audioCtx = null;
+        let currentOscillator = null;
+        let currentGainNode = null;
+
+        // DOM 元素快取
+        const slapSwitchBtn = document.getElementById('slapSwitchBtn');
+        const ledBulb = document.getElementById('ledBulb');
+        const ledStatusText = document.getElementById('ledStatusText');
+        const ledStateLabel = document.getElementById('ledStateLabel');
+        const buzzerBox = document.getElementById('buzzerBox');
+        const buzzerStateLabel = document.getElementById('buzzerStateLabel');
+        const circuitStatusText = document.getElementById('circuitStatusText');
+        const flashOverlay = document.getElementById('flashOverlay');
+
+        const wire1Flow = document.getElementById('wire1Flow');
+        const wire2Flow = document.getElementById('wire2Flow');
+        const wire3Flow = document.getElementById('wire3Flow');
+
+        const statsModal = document.getElementById('statsModal');
+
+        /* ==================== 音效引擎 (Web Audio API) ==================== */
+        function initAudioContext() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function startSound() {
+            initAudioContext();
+            stopSound(); // 確保無重複發聲
+
+            currentGainNode = audioCtx.createGain();
+            currentOscillator = audioCtx.createOscillator();
+
+            const now = audioCtx.currentTime;
+
+            if (soundType === 'buzzer') {
+                currentOscillator.type = 'square';
+                currentOscillator.frequency.setValueAtTime(800, now);
+                currentGainNode.gain.setValueAtTime(0.25, now);
+            } else if (soundType === 'soft') {
+                currentOscillator.type = 'sine';
+                currentOscillator.frequency.setValueAtTime(440, now);
+                currentGainNode.gain.setValueAtTime(0.4, now);
+            } else if (soundType === 'bell') {
+                currentOscillator.type = 'triangle';
+                currentOscillator.frequency.setValueAtTime(987.77, now);
+                currentGainNode.gain.setValueAtTime(0.3, now);
+            }
+
+            currentOscillator.connect(currentGainNode);
+            currentGainNode.connect(audioCtx.destination);
+            currentOscillator.start();
+        }
+
+        function stopSound() {
+            if (currentOscillator) {
+                try {
+                    currentOscillator.stop();
+                    currentOscillator.disconnect();
+                } catch (e) {}
+                currentOscillator = null;
+            }
+        }
+
+        /* ==================== 電路與感官觸發邏輯 ==================== */
+        function turnOnCircuit() {
+            if (isCircuitActive) return;
+            isCircuitActive = true;
+
+            // IEP 統計
+            pressCount++;
+            activeStartTime = Date.now();
+            updateStatsDisplay();
+
+            // 開關與電路視覺
+            slapSwitchBtn.classList.add('pressed');
+            wire1Flow.classList.remove('hidden');
+            wire2Flow.classList.remove('hidden');
+            wire3Flow.classList.remove('hidden');
+
+            circuitStatusText.innerHTML = "⚡ 電路閉合 (Circuit Closed) - 電流流動中！";
+            circuitStatusText.className = "text-sm sm:text-lg font-black tracking-wider text-yellow-300 animate-pulse";
+
+            // 感官回饋
+            if (sensoryMode === 'both' || sensoryMode === 'light') {
+                ledBulb.classList.add('active');
+                ledStatusText.innerText = "ON";
+                ledStatusText.className = "text-white opacity-100 font-black";
+                ledStateLabel.innerText = "🌟 發光亮起！";
+                flashOverlay.style.opacity = "0.25";
+                setTimeout(() => { if(isCircuitActive) flashOverlay.style.opacity = "0.1"; }, 100);
+            }
+
+            if (sensoryMode === 'both' || sensoryMode === 'sound') {
+                buzzerBox.classList.add('active');
+                buzzerStateLabel.innerText = "🔊 蜂鳴器響起！";
+                startSound();
+            }
+        }
+
+        function turnOffCircuit() {
+            if (!isCircuitActive) return;
+            isCircuitActive = false;
+
+            if (activeStartTime) {
+                totalActiveMs += (Date.now() - activeStartTime);
+                activeStartTime = null;
+            }
+            updateStatsDisplay();
+
+            slapSwitchBtn.classList.remove('pressed');
+            wire1Flow.classList.add('hidden');
+            wire2Flow.classList.add('hidden');
+            wire3Flow.classList.add('hidden');
+
+            circuitStatusText.innerHTML = "🔴 電路斷開 (Circuit Open) - 請拍下大開關";
+            circuitStatusText.className = "text-sm sm:text-lg font-black tracking-wider text-gray-300";
+
+            ledBulb.classList.remove('active');
+            ledStatusText.innerText = "OFF";
+            ledStatusText.className = "opacity-30";
+            ledStateLabel.innerText = "未亮起";
+
+            buzzerBox.classList.remove('active');
+            buzzerStateLabel.innerText = "靜音中";
+
+            flashOverlay.style.opacity = "0";
+            stopSound();
+        }
+
+        /* ==================== 事件監聽 (適應觸控、掌擊與鍵盤輔具) ==================== */
+        function handleSwitchDown(e) {
+            if (e) e.preventDefault();
+
+            if (triggerMode === 'hold') {
+                turnOnCircuit();
+            } else if (triggerMode === 'toggle') {
+                if (isCircuitActive) turnOffCircuit();
+                else turnOnCircuit();
+            }
+        }
+
+        function handleSwitchUp(e) {
+            if (e) e.preventDefault();
+            if (triggerMode === 'hold') {
+                turnOffCircuit();
+            }
+        }
+
+        // pointer events (touch / mouse / pen)
+        slapSwitchBtn.addEventListener('pointerdown', handleSwitchDown);
+        slapSwitchBtn.addEventListener('pointerup', handleSwitchUp);
+        slapSwitchBtn.addEventListener('pointerleave', handleSwitchUp);
+
+        // Add a click handler to support gaze "click" (dwell) and keyboard clicks
+        slapSwitchBtn.addEventListener('click', (e) => {
+            // treat dwell as a click: toggle behavior for accessibility
+            if (triggerMode === 'hold') {
+                // if hold mode, simulate a short press (on -> auto off shortly after)
+                turnOnCircuit();
+                setTimeout(() => {
+                    turnOffCircuit();
+                }, 600);
+            } else {
+                // toggle
+                if (isCircuitActive) turnOffCircuit();
+                else turnOnCircuit();
+            }
+        });
+
+        // keyboard (Space / Enter)
+        window.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            if (e.code === 'Space' || e.code === 'Enter') {
+                if (!statsModal.classList.contains('hidden')) return;
+                e.preventDefault();
+                // emulate click for keyboard users
+                slapSwitchBtn.click();
+            }
+        });
+
+        /* ==================== 教師控制台功能 ==================== */
+        function setSensoryMode(mode) {
+            sensoryMode = mode;
+            document.getElementById('modeBoth').className = mode === 'both' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-yellow-500 text-black shadow gaze-interactive' : 'px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive';
+            document.getElementById('modeLight').className = mode === 'light' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-yellow-500 text-black shadow gaze-interactive' : 'px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive';
+            document.getElementById('modeSound').className = mode === 'sound' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-yellow-500 text-black shadow gaze-interactive' : 'px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive';
+
+            if (isCircuitActive) {
+                turnOffCircuit();
+                turnOnCircuit();
+            }
+        }
+
+        function setTriggerMode(mode) {
+            triggerMode = mode;
+            if (isCircuitActive) turnOffCircuit();
+
+            document.getElementById('triggerHold').className = mode === 'hold' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-blue-600 text-white shadow gaze-interactive' : 'px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive';
+            document.getElementById('triggerToggle').className = mode === 'toggle' ? 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-blue-600 text-white shadow gaze-interactive' : 'px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition-all gaze-interactive';
+            
+            document.getElementById('statTriggerMode').innerText = mode === 'hold' ? '按住通電' : '拍一下切換';
+        }
+
+        function changeSoundType(val) {
+            soundType = val;
+            if (isCircuitActive && (sensoryMode === 'both' || sensoryMode === 'sound')) {
+                startSound();
+            }
+        }
+
+        /* ==================== IEP 統計數據模組 ==================== */
+        function updateStatsDisplay() {
+            document.getElementById('statCount').innerText = `${pressCount} 次`;
+            
+            let currentActive = totalActiveMs;
+            if (isCircuitActive && activeStartTime) {
+                currentActive += (Date.now() - activeStartTime);
+            }
+            document.getElementById('statTime').innerText = `${(currentActive / 1000).toFixed(1)} 秒`;
+        }
+
+        function toggleStatsModal() {
+            statsModal.classList.toggle('hidden');
+            updateStatsDisplay();
+        }
+
+        function resetStats() {
+            pressCount = 0;
+            totalActiveMs = 0;
+            activeStartTime = isCircuitActive ? Date.now() : null;
+            updateStatsDisplay();
+        }
+
+        // 定時刷新時間統計
+        setInterval(() => {
+            if (isCircuitActive) updateStatsDisplay();
+        }, 100);
+
+        /* ==================== GAZE / DWELL ENGINE ==================== */
+        // DWELL: 1000ms per user request
+        const DWELL_TIME = 1000;
+        const GAZE_SHOW_CURSOR = true;
+
+        const gazeCursor = document.getElementById('gaze-cursor');
+        if (GAZE_SHOW_CURSOR) gazeCursor.style.display = 'block';
+
+        let gazeCurrentTarget = null;
+        let gazeTimer = null;
+        let gazeStartTime = 0;
+        let lastGazePoint = {x: window.innerWidth/2, y: window.innerHeight/2};
+
+        // start dwell progress on target
+        function startDwell(target) {
+            if (!target) return;
+            clearDwell();
+
+            gazeCurrentTarget = target;
+            gazeStartTime = performance.now();
+
+            let progress = target.querySelector('.dwell-progress');
+            if (!progress) {
+                progress = document.createElement('div');
+                progress.className = 'dwell-progress';
+                target.appendChild(progress);
+            }
+            progress.style.transition = 'none';
+            progress.style.width = '0%';
+            void progress.offsetWidth;
+            progress.style.transition = `width ${DWELL_TIME}ms linear`;
+            progress.style.width = '100%';
+
+            target.classList.add('gaze-highlight');
+
+            gazeTimer = setTimeout(() => {
+                progress.classList.add('dwell-complete');
+                completeDwell(target);
+            }, DWELL_TIME);
+        }
+
+        function clearDwell() {
+            if (gazeTimer) {
+                clearTimeout(gazeTimer);
+                gazeTimer = null;
+            }
+            if (gazeCurrentTarget) {
+                const prev = gazeCurrentTarget;
+                const progress = prev.querySelector('.dwell-progress');
+                if (progress) {
+                    progress.style.transition = 'width 120ms linear';
+                    progress.style.width = '0%';
+                    setTimeout(() => {
+                        try { if (progress.parentNode) progress.parentNode.removeChild(progress); } catch(e) {}
+                    }, 160);
+                }
+                prev.classList.remove('gaze-highlight');
+                gazeCurrentTarget = null;
+            }
+        }
+
+        function completeDwell(target) {
+            if (!target) return;
+            // If target is the big slap switch, call its click handler
+            if (target === slapSwitchBtn || target.closest && target.closest('#slapSwitchBtn')) {
+                slapSwitchBtn.click();
+            } else {
+                // try to click the element
+                try { target.click(); }
+                catch(e) {
+                    const ev = new Event('click', {bubbles:true, cancelable:true});
+                    target.dispatchEvent(ev);
+                }
+            }
+
+            const progress = target.querySelector('.dwell-progress');
+            if (progress) {
+                progress.style.transition = 'width 120ms linear, opacity 220ms';
+                progress.style.width = '100%';
+            }
+            target.classList.add('dwell-complete');
+            setTimeout(() => {
+                if (target) target.classList.remove('dwell-complete');
+                clearDwell();
+            }, 260);
+        }
+
+        // receive gaze point (pixel or normalized)
+        function handleGazePointRaw(x, y, normalized=false) {
+            let px = x, py = y;
+            if (normalized) {
+                px = Math.round(x * window.innerWidth);
+                py = Math.round(y * window.innerHeight);
+            }
+            lastGazePoint = {x: px, y: py};
+
+            if (gazeCursor) {
+                gazeCursor.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+            }
+
+            const el = document.elementFromPoint(px, py);
+            const gazeEl = el ? (el.closest && (el.closest('[data-gaze]') || el.closest('.gaze-interactive'))) : null;
+
+            if (gazeEl) {
+                if (gazeEl !== gazeCurrentTarget) {
+                    clearDwell();
+                    startDwell(gazeEl);
+                }
+            } else {
+                clearDwell();
+            }
+        }
+
+        // pointermove fallback (mouse/touch)
+        window.addEventListener('pointermove', (e) => {
+            handleGazePointRaw(e.clientX, e.clientY, false);
+        }, {passive:true});
+
+        // custom event for Tobii SDK integration:
+        // window.dispatchEvent(new CustomEvent('gazePoint', {detail:{x, y, normalized:true/false}}));
+        window.addEventListener('gazePoint', (evt) => {
+            try {
+                const d = evt.detail || {};
+                const x = d.x, y = d.y;
+                const normalized = !!d.normalized;
+                if (typeof x === 'number' && typeof y === 'number') {
+                    handleGazePointRaw(x, y, normalized);
+                }
+            } catch(e) {}
+        });
+
+        // convenience bridge for third-party: window.receiveGaze(x,y,normalized)
+        window.receiveGaze = function(x, y, normalized=false) {
+            handleGazePointRaw(x, y, normalized);
+        };
+
+        // Optional WebSocket bridge (if you run a local proxy that feeds Tobii points)
+        const TOBII_WS_URL = null; // set to ws://host:port if you have a bridge
+        if (TOBII_WS_URL) {
+            try {
+                const ws = new WebSocket(TOBII_WS_URL);
+                ws.onopen = () => console.log('Tobii WS connected', TOBII_WS_URL);
+                ws.onmessage = (m) => {
+                    try {
+                        const d = JSON.parse(m.data);
+                        if (d && typeof d.x === 'number' && typeof d.y === 'number') {
+                            handleGazePointRaw(d.x, d.y, !!d.normalized);
+                        }
+                    } catch(e) {}
+                };
+                ws.onclose = () => console.log('Tobii WS closed');
+                ws.onerror = (err) => console.warn('Tobii WS error', err);
+            } catch(e) {
+                console.warn('Cannot connect to Tobii WS', e);
+            }
+        }
+
+        // Show console hint
+        window.onload = function() {
+            console.log("Tobii Gaze support loaded. Use window.dispatchEvent(new CustomEvent('gazePoint',{detail:{x:0.5,y:0.5,normalized:true}})) or window.receiveGaze(x,y,normalized). DWELL_TIME =", DWELL_TIME, "ms");
+        };
+    </script>
+</body>
+</html>
