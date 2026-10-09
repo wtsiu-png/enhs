@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>亮燈與發聲開關 - 互動遊戲（支援 Tobii 眼動）</title>
+<style>
+  :root{
+    --bg: #f6fbf8; /* 淡色護眼背景 */
+    --accent: #2b9d6f;
+    --muted: #6b7280;
+    --big: 60px; /* 文字特大 */
+    --gap: 28px;  /* 按鈕間距，避免誤觸 */
+    --dwell: 1000ms;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    font-family: "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
+    background: linear-gradient(180deg,var(--bg),#eef7f2);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    color:#043927;
+    font-size:var(--big);
+  }
+
+  .app{
+    max-width:1100px;
+    margin:28px auto;
+    padding:24px;
+    display:grid;
+    grid-template-columns: 1fr 460px;
+    gap:24px;
+    align-items:start;
+  }
+
+  /* 左側：遊戲區 */
+  .panel{
+    background: rgba(255,255,255,0.6);
+    border-radius:18px;
+    padding:28px;
+    box-shadow: 0 6px 18px rgba(6,20,10,0.06);
+  }
+
+  .title{
+    font-weight:700;
+    margin:0 0 12px 0;
+    line-height:1;
+  }
+
+  .instruction{
+    font-size:0.6em; /* 60px * 0.6 = 36px secondary text */
+    color:var(--muted);
+    margin-bottom:20px;
+  }
+
+  /* 顯示目標與目前狀態 */
+  .status{
+    display:flex;
+    gap:18px;
+    align-items:center;
+    margin-bottom:22px;
+  }
+
+  .device{
+    background: #fff;
+    border-radius:14px;
+    padding:18px;
+    flex:1;
+    display:flex;
+    gap:18px;
+    align-items:center;
+    justify-content:flex-start;
+    box-shadow: 0 4px 12px rgba(8,20,16,0.04);
+  }
+  .device svg{
+    width:120px;
+    height:120px;
+  }
+  .device .label{
+    font-size:0.5em;
+    color:var(--muted);
+  }
+  .device .state{
+    font-weight:700;
+    font-size:0.62em;
+  }
+
+  /* 按鈕區，按鈕要分開避免誤觸 */
+  .controls{
+    margin-top:10px;
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap);
+  }
+
+  .btn{
+    appearance:none;
+    -webkit-appearance:none;
+    border: 6px solid #ffffff;
+    border-radius:18px;
+    background: linear-gradient(180deg,#ffffff,#f0fff4);
+    padding:20px;
+    text-align:center;
+    font-size:0.55em;
+    font-weight:700;
+    color:#07492f;
+    cursor:pointer;
+    user-select:none;
+    box-shadow: 0 6px 18px rgba(6,20,10,0.06);
+    transition: transform .08s ease, box-shadow .08s;
+    outline: none;
+  }
+  .btn:active{ transform: translateY(2px) scale(.998); }
+  .btn:focus{
+    box-shadow: 0 0 0 6px rgba(43,157,111,0.12);
+  }
+
+  /* 大間距單欄按鈕 (例如重設/下一題) */
+  .wide{
+    grid-column: 1 / -1;
+    font-size:0.5em;
+    background: linear-gradient(180deg,#2fb67a,#23885b);
+    color:white;
+  }
+
+  /* 提示訊息 */
+  .toast{
+    margin-top:18px;
+    font-size:0.48em;
+    color:var(--muted);
+    min-height:1.1em;
+  }
+  .toast .msg{
+    display:inline-block;
+    padding:10px 14px;
+    border-radius:12px;
+    background: rgba(255,255,255,0.6);
+  }
+
+  /* 右側：設定 / Tobii 支援 / 幫助 */
+  .aside{
+    background: rgba(255,255,255,0.6);
+    border-radius:18px;
+    padding:24px;
+    box-shadow: 0 6px 18px rgba(6,20,10,0.04);
+    font-size:0.45em;
+    color:var(--muted);
+  }
+  .aside h3{ margin:0 0 12px 0; font-size:0.6em; color:#0b3d2a; }
+  .toggle{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    margin-bottom:12px;
+  }
+
+  /* 眼動游標（可由 Tobii 傳入座標或用滑鼠移動） */
+  #gazeCursor{
+    position: fixed;
+    pointer-events: none;
+    width: 38px;
+    height: 38px;
+    margin-left: -19px;
+    margin-top: -19px;
+    border-radius: 50%;
+    background: rgba(43,157,111,0.14);
+    backdrop-filter: blur(2px);
+    display:none;
+    z-index:9999;
+    box-shadow: 0 6px 18px rgba(6,20,10,0.08);
+    border: 2px solid rgba(43,157,111,0.22);
+    transition: transform .08s linear;
+  }
+
+  /* 環形進度（注視選取） */
+  .dwellRing{
+    position:absolute;
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .dwellRing svg{ width:44px; height:44px; transform: rotate(-90deg); }
+
+  /* Fireworks canvas 在最上層 */
+  #fxCanvas{
+    position: fixed;
+    left:0;top:0;
+    width:100%;
+    height:100%;
+    pointer-events:none;
+    z-index:9998;
+  }
+
+  /* 輔助：讀屏動態區域 */
+  #srLive{
+    position: absolute;
+    left:-9999px; top:auto;
+    width:1px; height:1px; overflow:hidden;
+  }
+
+  /* 響應式 */
+  @media (max-width:980px){
+    .app{ grid-template-columns: 1fr; padding:12px; gap:14px;}
+    .device svg{ width:96px;height:96px;}
+  }
+</style>
+</head>
+<body>
+<div class="app" role="application" aria-labelledby="gameTitle">
+  <div class="panel" aria-live="polite">
+    <h1 id="gameTitle" class="title">亮燈與發聲開關</h1>
+    <p class="instruction">請依指示操作兩個開關：燈（亮/暗）與發聲（開/關）。字體與按鈕都放大，並支援鍵盤與 Tobii 眼動注視選取。</p>
+
+    <div class="status" aria-hidden="false">
+      <div class="device" id="lampDevice" role="group" aria-label="燈的狀態">
+        <!-- 簡單 SVG 燈泡：會依狀態改變顏色 -->
+        <svg id="lampSVG" viewBox="0 0 128 128" aria-hidden="true">
+          <defs>
+            <radialGradient id="gLamp" cx="40%" cy="30%" r="60%">
+              <stop offset="0%" stop-color="#fff7c2" />
+              <stop offset="40%" stop-color="#ffe37a" />
+              <stop offset="100%" stop-color="#ffd04d" />
+            </radialGradient>
+          </defs>
+          <g id="bulbGroup">
+            <ellipse cx="64" cy="46" rx="34" ry="36" fill="#e6eef0" stroke="#cfd8d8" stroke-width="2"></ellipse>
+            <path id="filament" d="M44,50 Q64,70 84,50" fill="none" stroke="#b36b00" stroke-width="4" stroke-linecap="round"></path>
+            <rect x="48" y="70" width="32" height="20" rx="6" fill="#dedede"></rect>
+            <rect x="44" y="90" width="40" height="14" rx="6" fill="#cfcfcf"></rect>
+          </g>
+        </svg>
+        <div>
+          <div class="label">燈</div>
+          <div id="lampState" class="state" aria-live="polite">關閉</div>
+        </div>
+      </div>
+
+      <div class="device" id="soundDevice" role="group" aria-label="發聲狀態">
+        <!-- 喇叭 SVG -->
+        <svg id="speakerSVG" viewBox="0 0 128 128" aria-hidden="true">
+          <g id="spkGroup">
+            <path d="M20 44 L48 44 L72 28 L72 100 L48 84 L20 84 Z" fill="#e9f2ee" stroke="#cfe6d9" stroke-width="2"></path>
+            <circle cx="96" cy="64" r="18" fill="#fff7f0" stroke="#f4d9c8"></circle>
+          </g>
+        </svg>
+        <div>
+          <div class="label">發聲</div>
+          <div id="soundState" class="state" aria-live="polite">關閉</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls" role="toolbar" aria-label="開關控制按鈕">
+      <button class="btn" id="btnLightOn" aria-pressed="false" aria-label="開燈" data-action="light:on">開燈</button>
+      <button class="btn" id="btnLightOff" aria-pressed="false" aria-label="關燈" data-action="light:off">關燈</button>
+      <button class="btn" id="btnSoundOn" aria-pressed="false" aria-label="開聲" data-action="sound:on">開聲</button>
+      <button class="btn" id="btnSoundOff" aria-pressed="false" aria-label="關聲" data-action="sound:off">關聲</button>
+
+      <button class="btn wide" id="btnNext" aria-label="下一題">下一題</button>
+    </div>
+
+    <div class="toast" aria-live="polite" id="toast"><span class="msg">準備好了，請按按鈕或用眼動注視選取。</span></div>
+  </div>
+
+  <aside class="aside" aria-labelledby="asideTitle">
+    <h3 id="asideTitle">支援 Tobii 眼動</h3>
+    <div class="toggle">
+      <label for="gazeMode">注視選取（Gaze mode）</label>
+      <input type="checkbox" id="gazeMode" aria-label="啟用注視選取" />
+    </div>
+    <div style="margin-bottom:10px;">
+      注視選取模式會顯示綠色游標，並在注視目標上顯示環形進度，注視持續 1 秒會觸發按鈕。您可以：
+      <ul>
+        <li>使用 Tobii SDK 在網頁上呼叫 window.handleGaze(x,y) 傳入螢幕座標（px）。</li>
+        <li>或在本頁手動使用滑鼠移動以測試注視行為。</li>
+      </ul>
+    </div>
+
+    <h3>無障礙（Accessibility）</h3>
+    <div>
+      - 所有控制支援鍵盤（Tab → Enter/Space）。<br/>
+      - 為讀屏使用者提供 aria-live 訊息。<br/>
+      - 字體大、按鈕間距大，降低誤觸風險。
+    </div>
+
+    <h3 style="margin-top:12px">開發整合要點</h3>
+    <div>
+      - 若您用 Tobii Pro SDK，請在取得注視座標後呼叫：<br/>
+      <code>window.handleGaze(clientX, clientY)</code><br/>
+      - 我已實作 window.TobiiBridge.onGaze 與 window.handleGaze 兩個可呼叫的整合點，供您直接串接。
+    </div>
+  </aside>
+</div>
+
+<!-- 眼動游標及環形進度 -->
+<div id="gazeCursor" aria-hidden="true">
+  <div class="dwellRing" id="dwellRing" style="display:none;">
+    <svg viewBox="0 0 36 36">
+      <path id="ringBg" d="M18 2 a16 16 0 1 1 0 32 a16 16 0 1 1 0 -32" fill="none" stroke="rgba(255,255,255,0.24)" stroke-width="4"></path>
+      <path id="ringProg" d="M18 2 a16 16 0 1 1 0 32 a16 16 0 1 1 0 -32" fill="none" stroke="#2b9d6f" stroke-width="4" stroke-dasharray="0 100" stroke-linecap="round"></path>
+    </svg>
+  </div>
+</div>
+
+<!-- Fireworks canvas -->
+<canvas id="fxCanvas" aria-hidden="true"></canvas>
+
+<!-- 讀屏用 live region -->
+<div id="srLive" aria-live="polite"></div>
+
+<script>
+/*
+  互動遊戲邏輯、聲音合成（叮咚）、煙火動畫、以及 Tobii 眼動注視支援。
+  - 作者：為特殊教育與網頁工程最佳化（大字、分開按鈕、溫柔提示與聲音回饋）
+  - 支援點：window.handleGaze(x,y) 以及 window.TobiiBridge.onGaze(x,y)
+*/
+
+/* --------- 狀態與 DOM --------- */
+const state = {
+  lamp: false,   // false = off, true = on
+  sound: false,  // false = off, true = on
+  target: {lamp:false, sound:false}
+};
+
+const el = {
+  lampState: document.getElementById('lampState'),
+  soundState: document.getElementById('soundState'),
+  lampSVG: document.getElementById('lampSVG'),
+  speakerSVG: document.getElementById('speakerSVG'),
+  toast: document.getElementById('toast'),
+  srLive: document.getElementById('srLive'),
+  gazeModeToggle: document.getElementById('gazeMode'),
+  gazeCursor: document.getElementById('gazeCursor'),
+  dwellRing: document.getElementById('dwellRing'),
+  fxCanvas: document.getElementById('fxCanvas'),
+};
+
+const buttons = Array.from(document.querySelectorAll('.btn'));
+
+/* --------- 初始化互動 --------- */
+function init(){
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', onActionClick);
+    // keyboard activation
+    btn.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter' || e.key === ' '){
+        e.preventDefault();
+        btn.click();
+      }
+    });
+    // make accessible
+    btn.setAttribute('tabindex','0');
+    btn.setAttribute('role','button');
+  });
+
+  document.getElementById('btnNext').addEventListener('click', newRound);
+
+  // gaze toggle
+  el.gazeModeToggle.addEventListener('change', (e)=>{
+    setGazeMode(e.target.checked);
+  });
+
+  // 鼠標移動測試注視（若開啟 gaze mode，滑鼠也會顯示游標）
+  document.addEventListener('mousemove', (e)=>{
+    if(gazeEnabled){
+      handleGaze(e.clientX, e.clientY);
+    }
+  });
+
+  // 先產生一題
+  newRound();
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+}
+
+/* --------- 遊戲題目與檢查 --------- */
+function newRound(){
+  // 隨機目標狀態（燈：開/關、發聲：開/關）
+  state.target.lamp = Math.random() < 0.5;
+  state.target.sound = Math.random() < 0.5;
+  // 重置目前狀態（你也可保留，但為了練習每題從隨機開始）
+  state.lamp = Math.random() < 0.5;
+  state.sound = Math.random() < 0.5;
+  renderState();
+  announce(`新題：請把燈${state.target.lamp ? '開啟' : '關閉'}，並把發聲${state.target.sound ? '開啟' : '關閉'}。`);
+  setToast('請依指示操作開關。');
+  clearFX();
+}
+
+/* 檢查是否達成目標 */
+function checkWin(){
+  if(state.lamp === state.target.lamp && state.sound === state.target.sound){
+    // 答對
+    onCorrect();
+  } else {
+    // 尚未完成或錯誤（給溫柔提示）
+    setToast('還差一點，試試調整另一個開關～', 2000);
+    srAnnounce('還差一點，請再試一次。');
+  }
+}
+
+/* --------- UI 更新 --------- */
+function renderState(){
+  el.lampState.textContent = state.lamp ? '開啟' : '關閉';
+  el.soundState.textContent = state.sound ? '開啟' : '關閉';
+
+  // lamp visual: 改變燈泡顏色與亮度
+  const bulb = el.lampSVG.querySelector('ellipse');
+  const filament = el.lampSVG.querySelector('#filament');
+  if(state.lamp){
+    bulb.setAttribute('fill','url(#gLamp)');
+    filament.setAttribute('stroke','#b36b00');
+    el.lampSVG.style.filter = 'drop-shadow(0 6px 18px rgba(255,200,80,0.18))';
+  } else {
+    bulb.setAttribute('fill','#e6eef0');
+    filament.setAttribute('stroke','#b36b00');
+    el.lampSVG.style.filter = 'none';
+  }
+
+  // speaker visual: 顯示音波圓圈或灰色
+  const ring = el.speakerSVG.querySelector('circle') || document.createElementNS('http://www.w3.org/2000/svg','circle');
+  if(state.sound){
+    ring.setAttribute('cx','96');
+    ring.setAttribute('cy','64');
+    ring.setAttribute('r','18');
+    ring.setAttribute('fill','#fff7f0');
+    el.speakerSVG.style.filter = 'drop-shadow(0 6px 12px rgba(43,157,111,0.06))';
+  } else {
+    ring.setAttribute('cx','96');
+    ring.setAttribute('cy','64');
+    ring.setAttribute('r','18');
+    ring.setAttribute('fill','#fff7f0');
+    el.speakerSVG.style.filter = 'grayscale(0.7) opacity(0.9)';
+  }
+}
+
+/* Toast 暫時訊息 */
+let toastTimer = null;
+function setToast(text, timeout=0){
+  if(toastTimer) clearTimeout(toastTimer);
+  el.toast.querySelector('.msg').textContent = text;
+  if(timeout>0){
+    toastTimer = setTimeout(()=> setToast(''), timeout);
+  }
+}
+
+/* 讀屏用 announcer */
+function announce(text){
+  el.srLive.textContent = text;
+}
+function srAnnounce(text){
+  // 也放到 toast
+  setToast(text, 2000);
+  announce(text);
+}
+
+/* --------- 按鈕行為 --------- */
+function onActionClick(e){
+  const btn = e.currentTarget;
+  const action = btn.dataset.action;
+  if(!action) return;
+
+  if(action === 'next') return newRound();
+
+  const [type, mode] = action.split(':'); // e.g., light:on
+  if(type === 'light'){
+    state.lamp = (mode === 'on');
+  } else if(type === 'sound'){
+    state.sound = (mode === 'on');
+  }
+  renderState();
+
+  // 如果打開發聲，播放一個提示音 (不當作答對)
+  if(type === 'sound' && state.sound){
+    // 溫柔音提示（短音）
+    playSoftPing();
+  }
+
+  // 每次操作檢查是否達標
+  checkWin();
+}
+
+/* --------- 正確回饋：叮咚 + 煙火 --------- */
+function onCorrect(){
+  setToast('答對！太棒了！', 3000);
+  srAnnounce('答對，太棒了！準備下一題。');
+  playDingDong();
+  fireworkBurst();
+  // 下一題按鈕會可按，或自動下一題
+  setTimeout(newRound, 3200);
+}
+
+/* --------- Web Audio: 叮咚聲與短提示聲 --------- */
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = AudioCtx ? new AudioCtx() : null;
+
+function playDingDong(){
+  if(!audioCtx) return;
+  // 兩個 bell-like partials
+  const now = audioCtx.currentTime;
+  const master = audioCtx.createGain(); master.connect(audioCtx.destination);
+  master.gain.setValueAtTime(0.0001, now);
+  master.gain.exponentialRampToValueAtTime(0.8, now+0.01);
+  master.gain.exponentialRampToValueAtTime(0.0001, now+2.6);
+
+  // first bell
+  const o1 = audioCtx.createOscillator();
+  o1.type = 'sine';
+  o1.frequency.setValueAtTime(740, now); // higher partial
+  const g1 = audioCtx.createGain(); g1.gain.setValueAtTime(0.0001, now);
+  g1.gain.exponentialRampToValueAtTime(0.6, now+0.01);
+  g1.gain.exponentialRampToValueAtTime(0.0001, now+2.4);
+  o1.connect(g1).connect(master);
+  // second bell (lower)
+  const o2 = audioCtx.createOscillator();
+  o2.type = 'sine';
+  o2.frequency.setValueAtTime(520, now);
+  const g2 = audioCtx.createGain(); g2.gain.setValueAtTime(0.0001, now);
+  g2.gain.exponentialRampToValueAtTime(0.9, now+0.01);
+  g2.gain.exponentialRampToValueAtTime(0.0001, now+2.2);
+  o2.connect(g2).connect(master);
+
+  o1.start(now); o2.start(now);
+  o1.stop(now+2.5); o2.stop(now+2.3);
+}
+
+/* 溫柔提示短音 */
+function playSoftPing(){
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(880, now);
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(0.4, now+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+0.35);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(now); o.stop(now+0.4);
+}
+
+/* --------- Fireworks 煙火（Canvas 粒子） --------- */
+const fx = {
+  canvas: el.fxCanvas,
+  ctx: null,
+  particles: [],
+  running: false
+};
+function resizeCanvas(){
+  const c = fx.canvas;
+  c.width = innerWidth * devicePixelRatio;
+  c.height = innerHeight * devicePixelRatio;
+  c.style.width = innerWidth+'px';
+  c.style.height = innerHeight+'px';
+  fx.ctx = c.getContext('2d');
+  fx.ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+function fireworkBurst(){
+  // 在畫面中間附近炸開多個粒子群
+  const cx = innerWidth * (0.5 + (Math.random()-0.5)*0.3);
+  const cy = innerHeight * (0.35 + (Math.random()-0.35)*0.3);
+  for(let i=0;i<6;i++){
+    createFire(cx + (Math.random()-0.5)*60, cy + (Math.random()-0.5)*40);
+  }
+  if(!fx.running) runFX();
+}
+function createFire(x,y){
+  const hue = Math.floor(160 + Math.random()*120);
+  const count = 28 + Math.floor(Math.random()*24);
+  for(let i=0;i<count;i++){
+    fx.particles.push({
+      x, y,
+      vx: (Math.random()-0.5) * (4 + Math.random()*6),
+      vy: (Math.random()-0.9) * (4 + Math.random()*4) - 3,
+      life: 0,
+      ttl: 48 + Math.floor(Math.random()*40),
+      size: 4 + Math.random()*4,
+      hue,
+      alpha: 1
+    });
+  }
+}
+
+function runFX(){
+  fx.running = true;
+  let last = performance.now();
+  function frame(ts){
+    const dt = Math.min(40, ts - last);
+    last = ts;
+    const ctx = fx.ctx;
+    // clear with small alpha to create trails
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    for(let i=fx.particles.length-1;i>=0;i--){
+      const p = fx.particles[i];
+      p.life += dt/16;
+      p.vy += 0.06 * (dt/16); // gravity
+      p.x += p.vx * (dt/16);
+      p.y += p.vy * (dt/16);
+      p.alpha = Math.max(0, 1 - p.life / p.ttl);
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${hexToRgb(hslToHex(p.hue,70,55))},${p.alpha})`;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.arc(p.x, p.y, p.size * (0.5 + p.alpha*0.8), 0, Math.PI*2);
+      ctx.fill();
+      if(p.life > p.ttl){
+        fx.particles.splice(i,1);
+      }
+    }
+    if(fx.particles.length>0){
+      requestAnimationFrame(frame);
+    } else {
+      fx.running = false;
+      ctx.clearRect(0,0,innerWidth,innerHeight);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+function clearFX(){
+  fx.particles = [];
+  if(fx.ctx) fx.ctx.clearRect(0,0,innerWidth,innerHeight);
+}
+
+/* 小工具：色彩轉換 */
+function hslToHex(h,s,l){
+  s/=100; l/=100;
+  const k = n => (n + h/30) % 12;
+  const a = s * Math.min(l,1-l);
+  const f = n => l - a*Math.max(-1, Math.min(k(n)-3, Math.min(9-k(n),1)));
+  return rgbToHex(Math.round(255*f(0)), Math.round(255*f(8)), Math.round(255*f(4)));
+}
+function rgbToHex(r,g,b){
+  return ((1<<24) + (r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+function hexToRgb(hex){
+  if(hex.length===6){
+    const r = parseInt(hex.substr(0,2),16);
+    const g = parseInt(hex.substr(2,2),16);
+    const b = parseInt(hex.substr(4,2),16);
+    return `${r},${g},${b}`;
+  }
+  return '255,255,255';
+}
+
+/* --------- Tobii / Gaze 支援（注視選取） --------- */
+let gazeEnabled = false;
+let gazeX = 0, gazeY = 0;
+let dwellTimerId = null;
+let dwellTarget = null;
+const DWELL_MS = 1000; // 注視時間，與 CSS 變數對應
+
+function setGazeMode(on){
+  gazeEnabled = !!on;
+  el.gazeCursor.style.display = gazeEnabled ? 'block' : 'none';
+  el.dwellRing.style.display = gazeEnabled ? 'flex' : 'none';
+  if(!gazeEnabled){
+    clearDwell();
+  }
+}
+
+/* 供 Tobii SDK 或開發者呼叫的整合點：
+   - window.handleGaze(x,y) : 傳入螢幕座標 (clientX, clientY)
+   - window.TobiiBridge.onGaze(x,y) : 別名
+*/
+window.handleGaze = function(clientX, clientY){
+  // 若沒有啟用 gaze mode，仍更新游標位置（方便測試）
+  gazeX = clientX; gazeY = clientY;
+  el.gazeCursor.style.left = clientX + 'px';
+  el.gazeCursor.style.top = clientY + 'px';
+  if(!gazeEnabled) return;
+
+  // 找到位於該座標下且可互動的按鈕
+  const hit = document.elementFromPoint(clientX, clientY);
+  const btn = findButtonAncestor(hit);
+  if(btn){
+    // 如果注視目標變了，重新開始計時
+    if(dwellTarget !== btn){
+      startDwell(btn);
+    }
+  } else {
+    clearDwell();
+  }
+};
+window.TobiiBridge = window.TobiiBridge || {};
+window.TobiiBridge.onGaze = function(x,y){ window.handleGaze(x,y); };
+
+/* helper: 往上尋找帶有 data-action 的按鈕 */
+function findButtonAncestor(elm){
+  let n = elm;
+  while(n && n !== document.body){
+    if(n.classList && n.classList.contains('btn')) return n;
+    n = n.parentElement;
+  }
+  return null;
+}
+
+/* 注視選取計時器 */
+function startDwell(btn){
+  clearDwell();
+  dwellTarget = btn;
+  // 在游標上顯示環形進度 (使用 SVG stroke-dasharray)
+  el.dwellRing.style.display = 'flex';
+  const prog = el.dwellRing.querySelector('#ringProg');
+  prog.setAttribute('stroke-dasharray','0 100');
+  let start = performance.now();
+  function tick(ts){
+    if(!dwellTarget) return;
+    const elapsed = ts - start;
+    const ratio = Math.min(1, elapsed / (DWELL_MS));
+    // stroke-dasharray 以百分比顯示
+    const dash = Math.floor(ratio * 100);
+    prog.setAttribute('stroke-dasharray', `${dash} ${100-dash}`);
+    if(ratio >= 1){
+      // 觸發按鈕
+      dwellTarget.click();
+      clearDwell();
+      return;
+    }
+    dwellTimerId = requestAnimationFrame(tick);
+  }
+  dwellTimerId = requestAnimationFrame(tick);
+}
+
+/* 清除注視計時器 */
+function clearDwell(){
+  if(dwellTimerId){ cancelAnimationFrame(dwellTimerId); dwellTimerId = null; }
+  dwellTarget = null;
+  const prog = el.dwellRing.querySelector('#ringProg');
+  if(prog) prog.setAttribute('stroke-dasharray','0 100');
+  // 隱藏進度環（但保留游標）
+  if(gazeEnabled) el.dwellRing.style.display = 'none';
+}
+
+/* 若使用者滑鼠或觸控，取消注視選取 */
+document.addEventListener('mousedown', ()=>{ if(gazeEnabled) clearDwell(); });
+
+/* --------- 開始 */ 
+init();
+
+/* --------- 進階整合備註（給開發者） ---------
+  - 若要接 Tobii Pro SDK：在取得注視座標 (clientX, clientY) 後呼叫 window.handleGaze(x,y)。
+  - 若需其他事件整合，可覆蓋 window.TobiiBridge.onGaze。
+  - 本頁支援鍵盤、滑鼠與注視選取（dwell）三種互動方式。
+*/
+
+/* EOF */
+</script>
+</body>
+</html>
